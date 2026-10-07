@@ -434,3 +434,90 @@ export class Fly {
     this.spin.set((Math.random() - 0.5) * 8, (Math.random() - 0.5) * 10, (Math.random() - 0.5) * 6);
   }
 }
+
+// ---------------------------------------------------------------------------
+// Dead flies: each catch leaves a corpse that tumbles down and comes to rest,
+// belly up with legs curled, along the bottom edge of the view. They pile up.
+
+let corpseShadowTex;
+function shadowTex() {
+  if (corpseShadowTex) return corpseShadowTex;
+  const c = document.createElement('canvas'); c.width = c.height = 64;
+  const x = c.getContext('2d');
+  const g = x.createRadialGradient(32, 32, 0, 32, 32, 32);
+  g.addColorStop(0, 'rgba(0,0,0,0.5)'); g.addColorStop(1, 'rgba(0,0,0,0)');
+  x.fillStyle = g; x.fillRect(0, 0, 64, 64);
+  return (corpseShadowTex = new THREE.CanvasTexture(c));
+}
+
+export class Corpses {
+  constructor(scene, max = 60) {
+    this.scene = scene; this.max = max; this.list = [];
+    this.floorAt = () => -0.11; this.scale = 1;
+  }
+
+  setFloor(fn, scale) {
+    this.floorAt = fn; this.scale = scale;
+    for (const c of this.list) if (c.resting) { c.pos.y = this.floorAt(c.pos.z) + c.lift; c.model.object.position.copy(c.pos); c.shadow.position.set(c.pos.x, this.floorAt(c.pos.z) + 0.0004, c.pos.z); }
+  }
+
+  // from: the live fly's object (its pose is copied), vel: initial velocity (m/s)
+  add(from, vel) {
+    const m = new FlyModel();
+    m.object.position.copy(from.getWorldPosition(new THREE.Vector3()));
+    m.object.quaternion.copy(from.getWorldQuaternion(new THREE.Quaternion()));
+    m.object.scale.setScalar(this.scale);
+    m.setLegPose('dead', 1); m.applyLegs(0); m.animateWings(0, false);
+    // squashed a little
+    m.body.scale.set(0.0015 * 1.05, 0.0015 * 0.8, 0.0015);
+    this.scene.add(m.object);
+    const shadow = new THREE.Mesh(new THREE.PlaneGeometry(0.014, 0.01), new THREE.MeshBasicMaterial({ map: shadowTex(), transparent: true, depthWrite: false, opacity: 0 }));
+    shadow.rotation.x = -Math.PI / 2;
+    shadow.scale.setScalar(this.scale);
+    this.scene.add(shadow);
+    const c = {
+      model: m, shadow, pos: m.object.position.clone(), vel: vel.clone(),
+      spin: new THREE.Vector3((Math.random() - 0.5) * 14, (Math.random() - 0.5) * 10, (Math.random() - 0.5) * 14),
+      resting: false, bounces: 0, lift: 0.003 * this.scale,
+      // final pose: on its back (model up -> world down), random heading, slight roll
+      rest: new THREE.Quaternion().setFromEuler(new THREE.Euler(0, Math.random() * Math.PI * 2, 0))
+        .multiply(new THREE.Quaternion().setFromEuler(new THREE.Euler((Math.random() - 0.5) * 0.4, 0, Math.PI + (Math.random() - 0.5) * 0.7))),
+    };
+    this.list.push(c);
+    if (this.list.length > this.max) {
+      const old = this.list.shift();
+      this.scene.remove(old.model.object); this.scene.remove(old.shadow);
+    }
+  }
+
+  update(dt) {
+    for (const c of this.list) {
+      if (c.resting) continue;
+      const o = c.model.object;
+      const floor = this.floorAt(c.pos.z);
+      c.vel.y -= 2.2 * dt;
+      c.vel.multiplyScalar(1 - dt * 0.6);
+      c.pos.addScaledVector(c.vel, dt);
+      if (c.pos.y <= floor + c.lift) {
+        c.pos.y = floor + c.lift;
+        if (Math.abs(c.vel.y) > 0.08 && c.bounces < 2) {
+          c.vel.y *= -0.28; c.vel.x *= 0.5; c.vel.z *= 0.5; c.bounces++;
+          c.spin.multiplyScalar(0.4);
+        } else {
+          c.vel.set(0, 0, 0);
+        }
+      }
+      const onFloor = c.pos.y <= floor + c.lift + 0.001;
+      if (onFloor) {
+        o.quaternion.slerp(c.rest, 1 - Math.exp(-dt * 14));
+        if (c.vel.lengthSq() === 0 && o.quaternion.angleTo(c.rest) < 0.01) { o.quaternion.copy(c.rest); c.resting = true; }
+      } else {
+        o.rotateX(c.spin.x * dt); o.rotateY(c.spin.y * dt); o.rotateZ(c.spin.z * dt);
+      }
+      o.position.copy(c.pos);
+      const h = c.pos.y - floor;
+      c.shadow.position.set(c.pos.x, floor + 0.0004, c.pos.z);
+      c.shadow.material.opacity = THREE.MathUtils.clamp(1 - h / 0.08, 0, 1) * 0.8;
+    }
+  }
+}

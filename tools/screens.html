@@ -1,0 +1,8 @@
+<body style="margin:0;background:#333">
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js"}}</script>
+<script type="module">
+import { Screens } from '../src/screens.js';
+const s = new Screens();
+s.inner.style.width='1024px'; s.outer.style.width='512px';
+document.body.append(s.inner, s.outer);
+</script></body>

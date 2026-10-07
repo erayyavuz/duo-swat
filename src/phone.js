@@ -51,25 +51,32 @@ function remapUV(geo, fn) {
 // Emissive screen material with a blur/zoom "wake" control on the emissive map.
 function screenMaterial(tex, { roughness, clearcoat = 0 }) {
   const mat = new THREE.MeshPhysicalMaterial({
-    color: 0x050506, roughness, metalness: 0, clearcoat, clearcoatRoughness: 0.04,
+    color: 0x040405, roughness, metalness: 0, clearcoat, clearcoatRoughness: 0.04, side: THREE.DoubleSide,
     emissive: 0xffffff, emissiveMap: tex, emissiveIntensity: 1,
     specularIntensity: clearcoat ? 0.6 : 0.25,
   });
   mat.userData.uniforms = {
     uBlur: { value: 0 }, uZoom: { value: 1 }, uBright: { value: 1 },
+    uDim: { value: new THREE.Vector2(1, 1) },            // brightness of the u<0.5 / u>0.5 halves
+    uSize: { value: new THREE.Vector2(0, 0) },           // display size in mm (0 = no corner mask)
+    uCorner: { value: 8 },
   };
   mat.onBeforeCompile = (sh) => {
     Object.assign(sh.uniforms, mat.userData.uniforms);
     sh.fragmentShader = sh.fragmentShader
       .replace('#include <common>', `#include <common>
-uniform float uBlur; uniform float uZoom; uniform float uBright;`)
+uniform float uBlur; uniform float uZoom; uniform float uBright; uniform vec2 uDim; uniform vec2 uSize; uniform float uCorner;`)
       .replace('#include <emissivemap_fragment>', `
 #ifdef USE_EMISSIVEMAP
+  if (uSize.x > 0.0) {
+    vec2 q = abs(vEmissiveMapUv - 0.5) * uSize - (uSize * 0.5 - uCorner);
+    if (length(max(q, 0.0)) > uCorner) discard;
+  }
   vec2 zuv = (vEmissiveMapUv - 0.5) / uZoom + 0.5;
   vec4 emissiveColor = vec4(0.0);
   // 13-tap disc blur on top of a mip bias: soft, iOS-like wake-up blur
-  float rad = uBlur * 0.012;
-  float bias = uBlur * 4.0;
+  float rad = uBlur * 0.016;
+  float bias = uBlur * 2.6;
   emissiveColor += texture2D(emissiveMap, zuv, bias) * 0.16;
   for (int i = 0; i < 12; i++) {
     float a = float(i) * 0.5235988 + 0.3;
@@ -77,7 +84,8 @@ uniform float uBlur; uniform float uZoom; uniform float uBright;`)
     vec2 o = vec2(cos(a), sin(a) * 1.41) * rad * rr;
     emissiveColor += texture2D(emissiveMap, zuv + o, bias) * 0.07;
   }
-  totalEmissiveRadiance *= emissiveColor.rgb * uBright;
+  float side = mix(uDim.x, uDim.y, smoothstep(0.497, 0.503, vEmissiveMapUv.x));
+  totalEmissiveRadiance *= emissiveColor.rgb * uBright * side;
 #endif`);
   };
   return mat;
@@ -100,14 +108,15 @@ export class Phone {
     return {
       frame: new THREE.MeshPhysicalMaterial({ metalness: 1, roughness: 0.11, envMapIntensity: 1.25 }),
       hinge: new THREE.MeshPhysicalMaterial({ metalness: 1, roughness: 0.42 }),
-      back: new THREE.MeshPhysicalMaterial({ metalness: 0, roughness: 0.38, clearcoat: 1, clearcoatRoughness: 0.32 }),
-      plateau: new THREE.MeshPhysicalMaterial({ metalness: 0.0, roughness: 0.16, clearcoat: 1, clearcoatRoughness: 0.05 }),
+      back: new THREE.MeshPhysicalMaterial({ metalness: 0, roughness: 0.62, clearcoat: 0.35, clearcoatRoughness: 0.55 }),
+      plateau: new THREE.MeshPhysicalMaterial({ metalness: 0.0, roughness: 0.4, clearcoat: 0.8, clearcoatRoughness: 0.25 }),
       bezel: new THREE.MeshPhysicalMaterial({ color: 0x020203, roughness: 0.3, metalness: 0, clearcoat: 0.5, clearcoatRoughness: 0.2 }),
-      lensGlass: new THREE.MeshPhysicalMaterial({ color: 0x05060a, roughness: 0.02, metalness: 0.2, clearcoat: 1, iridescence: 0.6, iridescenceIOR: 1.6 }),
-      lensRing: new THREE.MeshPhysicalMaterial({ metalness: 1, roughness: 0.08, color: 0x3c3f45 }),
+      lensGlass: new THREE.MeshPhysicalMaterial({ color: 0x030407, roughness: 0.03, metalness: 0.3, clearcoat: 1, iridescence: 0.25, iridescenceIOR: 1.4 }),
+      lensRing: new THREE.MeshPhysicalMaterial({ metalness: 0.9, roughness: 0.18, color: 0x2a2c31 }),
+      lensInner: new THREE.MeshPhysicalMaterial({ metalness: 0.6, roughness: 0.3, color: 0x15171c }),
       dark: new THREE.MeshStandardMaterial({ color: 0x010101, roughness: 0.6 }),
       flash: new THREE.MeshPhysicalMaterial({ color: 0xf2efe6, roughness: 0.25, transmission: 0.2 }),
-      inner: screenMaterial(s.innerTex, { roughness: 0.62 }),      // nano-texture: matte
+      inner: screenMaterial(s.innerTex, { roughness: 0.38 }),      // nano-texture: soft reflections
       outer: screenMaterial(s.outerTex, { roughness: 0.06, clearcoat: 1 }),
     };
   }
@@ -115,20 +124,20 @@ export class Phone {
   setFinish(name) {
     const m = this.mats;
     if (name === 'white') {
-      m.frame.color.set(0xd8d4cc);
-      m.hinge.color.set(0xb9b5ae);
-      m.back.color.set(0xe9e6df);
-      m.plateau.color.set(0xe2dfd8);
+      m.frame.color.set(0xd9d3c7);
+      m.hinge.color.set(0xbdb7ad);
+      m.back.color.set(0xe9e8e4);
+      m.plateau.color.set(0xe6e5e1);
     } else {
-      m.frame.color.set(0x3a4560);
-      m.hinge.color.set(0x2f3850);
-      m.back.color.set(0x1b2234);
-      m.plateau.color.set(0x222a3e);
+      m.frame.color.set(0x3b404c);
+      m.hinge.color.set(0x30343e);
+      m.back.color.set(0x262a33);
+      m.plateau.color.set(0x2a2e38);
     }
     this.finish = name;
   }
 
-  _halfBody(withScreenUV) {
+  _halfBody() {
     const { W, H, T, R, BEVEL } = D;
     const g = new THREE.Group();
     // titanium frame body (extruded, polished bevel)
@@ -145,11 +154,6 @@ export class Phone {
     const bez = new THREE.Mesh(new THREE.ShapeGeometry(halfShape(W, H, R, 0.55, 0.0), 24), this.mats.bezel);
     bez.position.z = 0.03;
     g.add(bez);
-    const scr = new THREE.ShapeGeometry(halfShape(W, H, R - 1, 2.3, 0.0), 24);
-    remapUV(scr, withScreenUV);
-    const screen = new THREE.Mesh(scr, this.mats.inner);
-    screen.position.z = 0.06;
-    g.add(screen);
 
     // back glass
     const back = new THREE.Mesh(new THREE.ShapeGeometry(halfShape(W, H, R, 0.8, 0.8), 24), this.mats.back);
@@ -157,14 +161,14 @@ export class Phone {
     // rotation.y flips x; mirror back so it lines up
     back.scale.x = -1;
     g.add(back);
-    return { g, frame, screen };
+    return { g, frame };
   }
 
   _build() {
     const { W, H, T, GAP, R } = D;
 
     // ---- fixed half (held by the hand), local x in [-W, 0], screen at z=0 facing +z
-    const fixed = this._halfBody((x, y) => [(x + W) / (2 * W), (y + H / 2) / H]);
+    const fixed = this._halfBody();
     this.fixed = fixed.g;
     this.group.add(this.fixed);
     this._cameraPlateau(this.fixed);
@@ -173,7 +177,7 @@ export class Phone {
     this.pivot = new THREE.Group();
     this.pivot.position.set(0, 0, GAP / 2);
     this.group.add(this.pivot);
-    const flap = this._halfBody((x, y) => [0.5 + (-x) / (2 * W), (y + H / 2) / H]);
+    const flap = this._halfBody();
     this.flap = flap.g;
     this.flap.scale.z = -1;                 // screen faces -z when folded, body above
     this.flap.position.z = GAP / 2 - GAP / 2;
@@ -210,38 +214,113 @@ export class Phone {
       this.fixed.add(v);
     }
 
-    this.innerScreens = [fixed.screen, flap.screen];
+    this._buildDisplay();
+  }
+
+  // ---- the 7.6" inner display: one continuous panel that bends through the hinge.
+  // Columns are spaced densely near the crease; positions are recomputed per fold angle.
+  _buildDisplay() {
+    const { W, H } = D;
+    this.dS = W - 2.3; this.dH = H / 2 - 2.3;
+    const K = 241;
+    this.dCols = [];
+    for (let k = 0; k < K; k++) { const q = (k / (K - 1)) * 2 - 1; this.dCols.push(this.dS * Math.sign(q) * Math.abs(q) ** 1.7); }
+    const pos = new Float32Array(K * 2 * 3), nor = new Float32Array(K * 2 * 3), uv = new Float32Array(K * 2 * 2), idx = [];
+    for (let k = 0; k < K; k++) for (let r = 0; r < 2; r++) {
+      const i = k * 2 + r;
+      // viewer's left is the swinging half (s > 0) once the phone is mirrored into place
+      uv[i * 2] = (this.dS - this.dCols[k]) / (2 * this.dS);
+      uv[i * 2 + 1] = r;
+    }
+    for (let k = 0; k < K - 1; k++) { const a = k * 2, b = a + 1, c = a + 2, d = a + 3; idx.push(a, c, b, b, c, d); }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    g.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
+    g.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+    g.setIndex(idx);
+    this.display = new THREE.Mesh(g, this.mats.inner);
+    this.display.frustumCulled = false;
+    this.mats.inner.userData.uniforms.uSize.value.set(2 * this.dS, 2 * this.dH);
+    this.mats.inner.userData.uniforms.uCorner.value = D.R - 3;
+    this.group.add(this.display);
+  }
+
+  _bendDisplay(a) {
+    const g = this.display.geometry, P = g.attributes.position.array, N = g.attributes.normal.array;
+    const z0 = 0.08, off = 0.08, gap = D.GAP / 2;
+    const sa = Math.sin(a), ca = Math.cos(a);
+    // flap screen line: Q(s) = G + s*d (s >= 0), normal nf
+    const Gx = -off * sa, Gz = gap - off * ca, dx = -ca, dz = sa, nfx = -sa, nfz = -ca;
+    const phi = Math.PI - a;                    // how far the display turns through the crease
+    let fillet = null;
+    if (a > 0.15 && phi > 0.02) {
+      const u = (z0 - Gz) / dz;
+      const Hx = Gx + u * dx;
+      const t = Math.min(7, 5 * Math.tan(phi / 2));
+      const R = t / Math.tan(phi / 2);
+      fillet = { sA: Hx - t, sB: u + t, Ax: Hx - t, R, phi };
+    }
+    const cols = this.dCols;
+    for (let k = 0; k < cols.length; k++) {
+      const s = cols[k];
+      let x, z, nx, nz;
+      if (fillet && s > fillet.sA && s < fillet.sB) {
+        const psi = ((s - fillet.sA) / (fillet.sB - fillet.sA)) * fillet.phi;
+        x = fillet.Ax + fillet.R * Math.sin(psi); z = z0 + fillet.R - fillet.R * Math.cos(psi);
+        nx = -Math.sin(psi); nz = Math.cos(psi);
+      } else if (s <= (fillet ? fillet.sA : 0)) {
+        x = s; z = z0; nx = 0; nz = 1;
+      } else {
+        x = Gx + s * dx; z = Gz + s * dz; nx = nfx; nz = nfz;
+      }
+      for (let r = 0; r < 2; r++) {
+        const i = (k * 2 + r) * 3;
+        P[i] = x; P[i + 1] = r ? this.dH : -this.dH; P[i + 2] = z;
+        N[i] = nx; N[i + 1] = 0; N[i + 2] = nz;
+      }
+    }
+    g.attributes.position.needsUpdate = true;
+    g.attributes.normal.needsUpdate = true;
   }
 
   _cameraPlateau(half) {
     const { W, H, T } = D;
-    // horizontal plateau along the top of the back
-    const pw = W - 9, ph = 21, pr = ph / 2, depth = 1.6;
-    const shape = roundedRectShape(-W / 2, H / 2 - 4.5 - ph / 2, pw, ph, pr);
-    const geo = new THREE.ExtrudeGeometry(shape, { depth: depth - 0.6, bevelEnabled: true, bevelThickness: 0.3, bevelSize: 0.3, bevelSegments: 4, curveSegments: 24 });
+    const pw = 54, ph = 25.5, depth = 1.9, m = 4.2;
+    const cx = -W + m + pw / 2, cy = H / 2 - m - ph / 2;
+    const shape = roundedRectShape(cx, cy, pw, ph, ph / 2);
+    const geo = new THREE.ExtrudeGeometry(shape, { depth: depth - 1.0, bevelEnabled: true, bevelThickness: 0.5, bevelSize: 0.6, bevelSegments: 6, curveSegments: 32 });
     const plateau = new THREE.Mesh(geo, this.mats.plateau);
     plateau.rotation.y = Math.PI; plateau.scale.x = -1;
-    plateau.position.z = -T - 0.3;
+    plateau.position.z = -T - 0.5;
     half.add(plateau);
-    const cy = H / 2 - 4.5 - ph / 2, zTop = -T - depth - 0.05;
+    const zTop = -T - depth - 0.05;
     const lens = (x, r) => {
-      const ring = new THREE.Mesh(new THREE.CylinderGeometry(r + 0.7, r + 0.9, 1.1, 48), this.mats.lensRing);
-      ring.rotation.x = Math.PI / 2; ring.position.set(x, cy, zTop - 0.4);
+      // raised dark bezel ring, then the glass with a few internal element rings
+      const ring = new THREE.Mesh(new THREE.CylinderGeometry(r, r + 0.25, 1.4, 64), this.mats.lensRing);
+      ring.rotation.x = Math.PI / 2; ring.position.set(x, cy, zTop - 0.5);
       half.add(ring);
-      const glassM = new THREE.Mesh(new THREE.CircleGeometry(r, 48), this.mats.lensGlass);
-      glassM.rotation.y = Math.PI; glassM.position.set(x, cy, zTop - 0.97);
+      const face = new THREE.Mesh(new THREE.RingGeometry(r * 0.72, r, 64), this.mats.lensInner);
+      face.rotation.y = Math.PI; face.position.set(x, cy, zTop - 1.21);
+      half.add(face);
+      const glassM = new THREE.Mesh(new THREE.CircleGeometry(r * 0.72, 64), this.mats.lensGlass);
+      glassM.rotation.y = Math.PI; glassM.position.set(x, cy, zTop - 1.22);
       half.add(glassM);
-      const iris = new THREE.Mesh(new THREE.RingGeometry(r * 0.28, r * 0.42, 40), this.mats.lensRing);
-      iris.rotation.y = Math.PI; iris.position.set(x, cy, zTop - 0.98);
-      half.add(iris);
+      for (const k of [0.5, 0.3]) {
+        const iris = new THREE.Mesh(new THREE.RingGeometry(r * k - 0.25, r * k, 48), this.mats.lensRing);
+        iris.rotation.y = Math.PI; iris.position.set(x, cy, zTop - 1.23);
+        half.add(iris);
+      }
     };
-    lens(-W + 15, 6.2);
-    lens(-W + 32, 6.2);
-    const flash = new THREE.Mesh(new THREE.CircleGeometry(2.4, 32), this.mats.flash);
-    flash.rotation.y = Math.PI; flash.position.set(-W + 50, cy, -T - depth - 0.06);
+    const r = 7.6;
+    lens(-W + m + 1.4 + r, r);
+    lens(-W + m + 1.4 + r * 3 + 1.2, r);
+    const fx = -W + m + pw - 8.5;
+    const flash = new THREE.Mesh(new THREE.CircleGeometry(1.9, 32), this.mats.flash);
+    flash.scale.set(1.25, 0.9, 1);
+    flash.rotation.y = Math.PI; flash.position.set(fx, cy + 4.2, -T - depth - 0.06);
     half.add(flash);
-    const mic = new THREE.Mesh(new THREE.CircleGeometry(0.6, 16), this.mats.dark);
-    mic.rotation.y = Math.PI; mic.position.set(-W + 58, cy, -T - depth - 0.06);
+    const mic = new THREE.Mesh(new THREE.CircleGeometry(0.55, 16), this.mats.dark);
+    mic.rotation.y = Math.PI; mic.position.set(fx, cy - 3.8, -T - depth - 0.06);
     half.add(mic);
   }
 
@@ -253,7 +332,7 @@ export class Phone {
     bez.rotation.y = Math.PI; bez.scale.x = -1; bez.position.z = -T - 0.05;
     half.add(bez);
     const g = new THREE.ShapeGeometry(roundedRectShape(-W / 2, 0, sw, sh, R - 1.6), 24);
-    remapUV(g, (x, y) => [(x + W / 2) / sw + 0.5, (y) / sh + 0.5]);
+    remapUV(g, (x, y) => [0.5 - (x + W / 2) / sw, (y) / sh + 0.5]);   // u flipped: the phone is mirrored into place
     const scr = new THREE.Mesh(g, this.mats.outer);
     scr.rotation.y = Math.PI; scr.scale.x = -1; scr.position.z = -T - 0.08;
     half.add(scr);
@@ -261,13 +340,14 @@ export class Phone {
     // hole-punch Center Stage camera, upper right when viewed folded
     const hole = new THREE.Mesh(new THREE.CircleGeometry(1.7, 32), this.mats.lensGlass);
     hole.rotation.y = Math.PI; hole.scale.x = -1;
-    hole.position.set(-10, H / 2 - 7.5, -T - 0.11);
+    hole.position.set(-W + 10.5, H / 2 - 8, -T - 0.11);
     half.add(hole);
   }
 
   setAngle(a) {
     this.angle = a;
     this.pivot.rotation.y = a;
+    this._bendDisplay(a);
     // cover rotates at half angle and sinks along its bulge as the phone opens,
     // so its flat face tucks below the display when flat
     const h = a / 2, k = 1.0 * Math.sin(h) ** 2;

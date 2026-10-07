@@ -6,7 +6,7 @@ import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { Screens } from './screens.js';
 import { Phone, D, OPEN_CATCH } from './phone.js';
 import { Hand } from './hand.js';
-import { Fly } from './fly.js';
+import { Fly, Corpses } from './fly.js';
 import { Sound } from './audio.js';
 import { TrailPass } from './trail.js';
 
@@ -57,9 +57,15 @@ const screens = new Screens();
 const phone = new Phone(screens);
 const rig = new THREE.Group();               // hand + phone, metres
 scene.add(rig);
-rig.add(phone.group);
+// Everything below is modelled as "left hand holds the left half"; mirroring it gives the
+// real device's layout: the right (camera) half is held, the outer-display half swings
+// open and shut like a book cover.
+const mirror = new THREE.Group();
+mirror.scale.x = -1;
+rig.add(mirror);
+mirror.add(phone.group);
 const hand = new Hand();
-rig.add(hand.group);
+mirror.add(hand.group);
 
 // grip, tuned against the phone's left (fixed) half
 const GRIP = {
@@ -77,9 +83,11 @@ const handReady = hand.load('assets/hand.glb').then(() => {
   hand.group.position.fromArray(GRIP.p);
   hand.group.quaternion.fromArray(GRIP.q).premultiply(new THREE.Quaternion().setFromEuler(new THREE.Euler(...GRIP.t)));
   hand.group.scale.set(-1, 1, 1);           // mirrored right hand -> left hand
+  if (Q.has('handonly')) phone.group.visible = false;
 });
 
 const fly = new Fly(scene);
+const corpses = new Corpses(scene);
 
 // a soft contact shadow under the fly on the fixed screen
 const shadowTex = (() => {
@@ -96,7 +104,7 @@ phone.fixed.add(flyShadow);
 const sound = new Sound();
 
 // ------------------------------------------------------------------ layout
-const ROT_BASE = new THREE.Euler(0.15, 0.4, 0);
+const ROT_BASE = new THREE.Euler(+(Q.get('rx') ?? 0.15), +(Q.get('ry') ?? -0.4), 0);
 const viewHalf = new THREE.Vector2();
 function layout() {
   const w = innerWidth, h = innerHeight, aspect = w / h;
@@ -114,6 +122,7 @@ function layout() {
   const flyScale = clamp(dist / 0.42, 1, 1.7);
   fly.model.object.scale.setScalar(flyScale);
   fly.baseScale = flyScale;
+  corpses.setFloor((z) => -Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) * (CAM_BASE.z - z) + 0.005 * flyScale, flyScale);
   fly.setBounds(
     new THREE.Vector3(-viewHalf.x * 0.82, -viewHalf.y * 0.72, -0.02),
     new THREE.Vector3(viewHalf.x * 0.82, viewHalf.y * 0.72, 0.03),
@@ -123,6 +132,7 @@ function layout() {
 // ------------------------------------------------------------------ helpers
 const tmpV = new THREE.Vector3(), tmpQ = new THREE.Quaternion();
 const mmToWorld = (x, y, z, out = new THREE.Vector3()) => phone.group.localToWorld(out.set(x, y, z));
+const dirToWorld = (v) => v.transformDirection(phone.group.matrixWorld);
 
 // wedge centre (aim point) in phone-local mm, on the bisector between the halves
 function wedgeCenterLocal(a = phone.angle, r = 42) {
@@ -149,19 +159,14 @@ const flyCtx = {
     spot.x = clamp(spot.x, -72, -10);
     spot.y = clamp(spot.y, -48, 48);
   },
-  screenNormal() {
-    phone.group.getWorldQuaternion(tmpQ);
-    return new THREE.Vector3(0, 0, 1).applyQuaternion(tmpQ);
-  },
+  screenNormal() { return dirToWorld(new THREE.Vector3(0, 0, 1)); },
   // keep the fly from flying through the halves while they are open
   avoid(f) {
     if (game.mode !== 'open' && game.mode !== 'opening') return;
     const p = phone.localOf(f.pos);
-    phone.group.getWorldQuaternion(tmpQ);
     const inX = p.x > -D.W && p.x < 0, inY = Math.abs(p.y) < D.H / 2;
     if (inX && inY && p.z > -2 && p.z < 7) {
-      const n = new THREE.Vector3(0, 0, 1).applyQuaternion(tmpQ);
-      f.vel.addScaledVector(n, (7 - p.z) * 0.02);
+      f.vel.addScaledVector(dirToWorld(new THREE.Vector3(0, 0, 1)), (7 - p.z) * 0.02);
     }
     const a = phone.angle;
     const n = new THREE.Vector3(-Math.sin(a), 0, -Math.cos(a));     // flap screen normal (into wedge)
@@ -169,7 +174,7 @@ const flyCtx = {
     const q = p.clone().sub(new THREE.Vector3(0, 0, D.GAP / 2));
     const along = q.dot(d), off = q.dot(n);
     if (along > 0 && along < D.W && Math.abs(p.y) < D.H / 2 && off > -2 && off < 7) {
-      f.vel.addScaledVector(n.applyQuaternion(tmpQ), (7 - off) * 0.02);
+      f.vel.addScaledVector(dirToWorld(n), (7 - off) * 0.02);
     }
   },
 };
@@ -188,7 +193,7 @@ const game = {
   caught: 0, missed: 0,
   snapFrom: OPEN_CATCH,
   pendingCatch: false, holdFor: 0,
-  reveal: 0,              // inner screen wake progress 0..1
+  scr: { flap: 0, fixed: 0, blur: 1.5, outer: 1 },   // display state, eased every frame
   shake: 0,
   respawnIn: -1,
   stillFor: 0,
@@ -220,7 +225,7 @@ function snap() {
   if (fly.flying || fly.state === 'landed') {
     const wc = mmToWorld(...wedgeCenterLocal().toArray());
     if (fly.pos.distanceTo(wc) < 0.11) {
-      fly.reactAt = (fly.state === 'landed' ? 0.11 : 0.04) + Math.random() * 0.08;
+      fly.reactAt = (fly.state === 'landed' ? 0.12 : 0.06) + Math.random() * 0.08;
     }
   }
 }
@@ -304,7 +309,8 @@ const outerU = phone.mats.outer.userData.uniforms;
 game.timeScale = +(Q.get('slow') ?? 1);
 
 function tick() {
-  const dt = Math.min(clock.getDelta(), 1 / 30) * game.timeScale;
+  let dt = Math.min(clock.getDelta(), 1 / 30) * game.timeScale;
+  if (game.manualDt !== undefined) { dt = game.manualDt; game.manualDt = 0; }   // debug stepping
   if (!started) { composer.render(); return; }
   game.t += dt; game.modeT += dt;
 
@@ -321,9 +327,10 @@ function tick() {
     phone.setAngle(lerp(0, OPEN_CATCH, k));
     if (k >= 1) { setMode('open'); ui.hint.classList.remove('gone'); }
   } else if (M === 'snapping') {
-    const dur = 0.105;
+    // a flick of the wrist: accelerates hard, slams into the magnets
+    const dur = 0.13;
     const k = clamp(game.modeT / dur, 0, 1);
-    let a = game.snapFrom * (1 - Math.pow(k, 2.2));
+    let a = game.snapFrom * (1 - Math.pow(k, 2.5));
     // a fly still inside the wedge when it's nearly shut gets pressed between the screens
     if (fly.state !== 'caught' && (fly.flying || fly.state === 'landed')) {
       phone.setAngle(Math.max(a, 0.001));
@@ -371,10 +378,10 @@ function tick() {
     const a = lerp(game.pendingCatch ? 0.035 : 0, OPEN_CATCH, easeOutBack(k));
     phone.setAngle(a);
     if (game.pendingCatch && fly.state === 'caught' && a > 0.45) {
-      // the corpse peels off the screen and drops
-      const wp = fly.model.object.position.clone();
-      const v = flyCtx.screenNormal().multiplyScalar(0.05).add(new THREE.Vector3(0, 0.03, 0));
-      fly.drop(wp, v);
+      // the corpse peels off the screen and drops to the bottom of the view, where it stays
+      const v = flyCtx.screenNormal().multiplyScalar(0.06).add(new THREE.Vector3((Math.random() - 0.5) * 0.04, 0.05, 0));
+      corpses.add(fly.model.object, v);
+      fly.state = 'gone'; fly.model.object.visible = false;
       game.pendingCatch = false;
       game.respawnIn = 1.3;
     }
@@ -383,17 +390,36 @@ function tick() {
     phone.setAngle(OPEN_CATCH + Math.sin(game.t * 1.3) * 0.012);   // a hand is never perfectly still
   }
 
-  // ---- screens: outer on when folded, inner wakes with a blur-to-sharp as it opens
-  const a = phone.angle;
-  const outerOn = clamp(1 - (a - 0.05) / 0.35, 0, 1);
-  outerU.uBright.value = outerOn;
-  outerU.uBlur.value = (1 - outerOn) * 1.5;
-  if (a > 0.45) game.reveal = Math.min(1, game.reveal + dt / 0.6);
-  else if (a < 0.2) game.reveal = Math.max(0, game.reveal - dt / 0.08);
-  const r = easeOut(game.reveal);
-  innerU.uBright.value = r * 1.15;
-  innerU.uBlur.value = (1 - r) * 2.2;
-  innerU.uZoom.value = lerp(1.12, 1, r);
+  if (Q.has('a')) {
+    // debug: freeze at a fixed fold angle, skip the intro
+    if (game.mode === 'intro' || game.mode === 'opening') { setMode('open'); aim.pos.copy(aim.target); }
+    phone.setAngle(THREE.MathUtils.degToRad(+Q.get('a')));
+  }
+  // ---- screens, as seen in hands-on footage:
+  // folding: the swinging half goes dark at once, the held half frosts over and dims;
+  // folded: inner off, the outer Lock Screen wakes (slight zoom + blur settling);
+  // unfolding: held half lights first (frosted), the other joins past ~70 deg, and the
+  // whole panel resolves from heavy blur to sharp once it's open.
+  {
+    const a = phone.angle, S = game.scr;
+    const toward = (v, t, up, down) => v + (t - v) * (1 - Math.exp(-dt * (t > v ? up : down)));
+    const folded = a < 0.22;
+    const snapping = M === 'snapping' || M === 'shut';
+    S.flap = toward(S.flap, folded || snapping ? 0 : (a > 1.2 ? 1 : 0), 9, 60);
+    S.fixed = toward(S.fixed, folded ? 0 : (snapping ? 0.45 : 1), 10, snapping ? 14 : 40);
+    const settled = M === 'open' && game.modeT > 0.04;
+    S.blur = toward(S.blur, snapping ? 1.3 : (settled ? 0 : 1.5), settled ? 5 : 30, 30);
+    // the outer display wakes only once the halves have met
+    const shutLongEnough = (M === 'shut' && game.modeT > 0.08) || M === 'intro';
+    S.outer = toward(S.outer, folded && shutLongEnough ? 1 : 0, 9, 40);
+    innerU.uBright.value = 1.12;
+    innerU.uDim.value.set(S.flap, S.fixed);
+    innerU.uBlur.value = S.blur;
+    innerU.uZoom.value = 1 + S.blur * 0.035;
+    outerU.uBright.value = S.outer;
+    outerU.uBlur.value = (1 - S.outer) * 1.6;
+    outerU.uZoom.value = 1 + (1 - S.outer) * 0.06;
+  }
 
   // ---- aim + rig
   if (M !== 'intro') {
@@ -410,7 +436,9 @@ function tick() {
     clamp(-lean.x * 0.08, -0.15, 0.15),
   );
   // put the wedge centre under the aim point
-  const wc = wedgeCenterLocal(OPEN_CATCH).multiplyScalar(0.001).applyEuler(rig.rotation);
+  rig.position.set(0, 0, 0);
+  rig.updateMatrixWorld(true);
+  const wc = mmToWorld(...wedgeCenterLocal(OPEN_CATCH).toArray());
   rig.position.copy(aim.pos).sub(wc);
   if (M === 'shut') rig.position.y -= 0.004 * Math.sin(clamp(game.modeT / 0.15, 0, 1) * Math.PI);
   rig.updateMatrixWorld(true);
@@ -428,7 +456,7 @@ function tick() {
         const dir = fly.pos.clone().sub(wcw).normalize();
         // escape outward through the open side of the wedge
         const out = mmToWorld(...wedgeCenterLocal(phone.angle, 140).toArray()).sub(wcw).normalize();
-        fly.startle(dir.add(out).normalize(), 2.6);
+        fly.startle(dir.add(out).normalize(), 2.1);
       }
     }
   }
@@ -444,6 +472,7 @@ function tick() {
   }
   if (fly.state === 'land' && (M !== 'open' || speed > 0.2)) { fly.state = 'fly'; fly.pickTarget(); }
   fly.update(dt, flyCtx);
+  corpses.update(dt);
   if (fly.state === 'gone') {
     game.respawnIn -= dt;
     if (game.respawnIn <= 0) fly.spawn(true);
@@ -472,7 +501,7 @@ function tick() {
   game.shake = Math.max(0, game.shake - dt * 5);
   const sh = game.shake * game.shake * 0.0022;
   camera.position.set(CAM_BASE.x + (Math.random() - 0.5) * sh, CAM_BASE.y + (Math.random() - 0.5) * sh, CAM_BASE.z);
-  trail.amount = M === 'snapping' ? 0.55 : Math.max(0, trail.amount - dt * 6);
+  trail.amount = M === 'snapping' ? 0.38 : Math.max(0, trail.amount - dt * 6);
 
   if (Q.has('flycam')) {
     // debug: orbit a close-up camera around the fly
@@ -485,4 +514,4 @@ function tick() {
 }
 renderer.setAnimationLoop(tick);
 
-window.__app = { THREE, scene, camera, phone, renderer, screens, hand, rig, fly, game, aim, snap, sound };
+window.__app = { THREE, scene, camera, phone, renderer, screens, hand, rig, fly, game, aim, snap, sound, corpses };
