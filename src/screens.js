@@ -397,8 +397,9 @@ export class Screens {
     ctx.fillStyle = '#fff'; ctx.font = `600 40px ${FONT}`; ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
     ctx.fillText(timeStr(now), Wd - 58, 64);
     ctx.restore();
-    wifi(ctx, Wd - 140, 130, 34);
-    battery(ctx, Wd - 120, 106, 22);
+    // status row under the time: Wi-Fi, then battery, right-aligned with the clock
+    battery(ctx, Wd - 58 - 54, 104, 22);
+    wifi(ctx, Wd - 58 - 54 - 44, 128, 30);
 
     this.innerTex.needsUpdate = true;
   }

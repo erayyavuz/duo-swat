@@ -67,14 +67,9 @@ mirror.add(phone.group);
 const hand = new Hand();
 rig.add(hand.group);
 
-// Right hand holds the right half from behind, thumb over the right edge onto the bezel.
-// Fitted in rig space (metres) by tools/fitgrip.js against the held half
-// (x 0..0.082, y +-0.059, z -0.0052..0).
-const GRIP = Q.get('grip') ? JSON.parse(Q.get('grip')) :
-  [0.095, -0.117, -0.031, -0.338, -0.065, 0.405, -0.498, 1.303, -0.556, 0.406, -0.454, -0.294, -0.331, 0.331, 0.052, -0.334, 0.218, 0.958, -1.249, -0.26, 0.328, 0.471, 0.288, -0.3, -0.2];
-const handReady = hand.load('assets/arm.glb', 'assets/skin.jpg').then(() => {
-  rig.updateMatrixWorld(true);
-  hand.applyGrip(GRIP);
+// Right hand holding the right half: edge in the palm, thumb on the front bezel, fingers
+// hooked round the back. Posed in Blender against a proxy of the held half (rig space).
+const handReady = hand.load('assets/hand-posed.glb', 'assets/skin.jpg').then(() => {
   if (Q.has('handonly')) phone.group.visible = false;
 });
 

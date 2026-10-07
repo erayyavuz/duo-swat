@@ -17,7 +17,7 @@ No build step: plain ES modules plus an import map for `three@0.170.0`.
 | --- | --- |
 | `src/phone.js` | Foldable phone geometry: 117.8 × 164.6 × 5.2 mm open, polished titanium frame, micro-blasted hinge cover, pill camera plateau, outer display with hole-punch camera, a continuous inner display that bends through the crease, and the wedge hit test |
 | `src/screens.js` | Inner Home Screen (landscape Duo layout, side Dock) and outer Lock Screen (condensed clock behind the mountains) on the official Duo wallpapers. Icons are drawn in code in the iOS style |
-| `src/hand.js` | MakeHuman right forearm + hand with its rig and photo skin texture; the grip is a fitted pose vector (`tools/fitgrip.js`) |
+| `src/hand.js` | MakeHuman right forearm + hand with a photo skin texture, posed and baked in Blender (`tools/blender/pose_hand.py`, grip found by `tools/blender/search.py`, params in `grip.json`) |
 | `src/fly.js` | Housefly model (compound eyes, striped thorax, motion-blurred wings, jointed legs) and its flight, landing and escape behaviour |
 | `src/audio.js` | WebAudio-synthesised buzz, snap, squish and hinge sounds |
 | `src/trail.js` | Frame-accumulation motion blur, used during the snap |
@@ -27,7 +27,7 @@ Debug URL params: `?slow=0.25` (time scale), `?a=118` (freeze at a fold angle), 
 
 ## Credits
 
-- Hand: MakeHuman base mesh and "young caucasian male" skin (CC0), generated with [MPFB2](https://static.makehumancommunity.org/mpfb.html) in Blender (`tools/export_hand_mpfb.py`).
+- Hand: MakeHuman base mesh and "young caucasian male" skin (CC0), generated with [MPFB2](https://static.makehumancommunity.org/mpfb.html) in Blender (`tools/blender/`).
 - Wallpapers: Apple's iPhone Duo light wallpapers (as distributed by [iClarified](https://www.iclarified.com/102102/download-the-official-iphone-duo-wallpaper-here)); © Apple. `assets/wall-outer-fg.png` is a mountain cut-out made from it for the Lock Screen depth effect.
 - Environment: [Lebombo](https://polyhaven.com/a/lebombo) HDRI from Poly Haven (CC0).
 
