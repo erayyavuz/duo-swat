@@ -7,7 +7,7 @@ import * as THREE from 'three';
 // rear camera plateau with two 48MP cameras.
 // Model units are millimetres; the whole phone group is scaled to metres.
 
-export const D = { H: 117.8, W: 82.3, T: 5.2, GAP: 0.9, R: 11.5, BEVEL: 0.75 };
+export const D = { H: 117.8, W: 82.3, T: 5.2, GAP: 0.9, R: 13.5, BEVEL: 0.75 };
 export const OPEN_CATCH = THREE.MathUtils.degToRad(118);
 
 function halfShape(w, h, r, inset = 0, hingeInset = inset) {
@@ -331,7 +331,8 @@ export class Phone {
     const bez = new THREE.Mesh(new THREE.ShapeGeometry(halfShape(W, H, R, 0.7, 0.7), 24), this.mats.bezel);
     bez.rotation.y = Math.PI; bez.scale.x = -1; bez.position.z = -T - 0.05;
     half.add(bez);
-    const g = new THREE.ShapeGeometry(roundedRectShape(-W / 2, 0, sw, sh, R - 1.6), 24);
+    // rounded like the body on the outer edge, square on the hinge side
+    const g = new THREE.ShapeGeometry(halfShape(W, H, R - 0.4, 1.6, 1.6), 32);
     remapUV(g, (x, y) => [0.5 - (x + W / 2) / sw, (y) / sh + 0.5]);   // u flipped: the phone is mirrored into place
     const scr = new THREE.Mesh(g, this.mats.outer);
     scr.rotation.y = Math.PI; scr.scale.x = -1; scr.position.z = -T - 0.08;

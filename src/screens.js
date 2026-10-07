@@ -36,109 +36,8 @@ function squircle(ctx, x, y, s) {
 const lin = (ctx, x0, y0, x1, y1, stops) => { const g = ctx.createLinearGradient(x0, y0, x1, y1); stops.forEach(([o, c]) => g.addColorStop(o, c)); return g; };
 const rad = (ctx, x, y, r, stops) => { const g = ctx.createRadialGradient(x, y, 0, x, y, r); stops.forEach(([o, c]) => g.addColorStop(o, c)); return g; };
 
-function rng(seed) { let s = seed >>> 0; return () => ((s = (s * 1664525 + 1013904223) >>> 0) / 4294967296); }
 
 // ---------------------------------------------------------------- wallpaper
-// Desert: pale sky, hazy far peaks, a dark rugged range, big smooth sand dunes in front.
-function ridge(R, n, rough) {
-  // midpoint displacement -> rugged ridgeline in [-1, 1]
-  let pts = [0, 0];
-  let amp = 1;
-  while (pts.length < n) {
-    const next = [];
-    for (let i = 0; i < pts.length - 1; i++) next.push(pts[i], (pts[i] + pts[i + 1]) / 2 + (R() - 0.5) * amp);
-    next.push(pts[pts.length - 1]);
-    pts = next; amp *= rough;
-  }
-  const m = Math.max(...pts.map(Math.abs)) || 1;
-  return pts.map((v) => v / m);
-}
-
-function paintDesert(ctx, w, h, { horizon = 0.5, seed = 7, fgOnly = false } = {}) {
-  const R = rng(seed);
-  if (!fgOnly) {
-    ctx.fillStyle = lin(ctx, 0, 0, 0, h * horizon, [[0, '#7aa6d8'], [0.6, '#b4cde8'], [1, '#e9ecef']]);
-    ctx.fillRect(0, 0, w, h);
-  }
-  const ranges = [
-    { y: horizon - 0.05, amp: 0.09, top: '#9ea6b4', bot: '#c9ccd2', rough: 0.5, far: true },
-    { y: horizon + 0.035, amp: 0.1, top: '#464951', bot: '#76716b', rough: 0.56 },
-  ];
-  for (const g of ranges) {
-    const pts = ridge(R, 257, g.rough);
-    const big = ridge(R, 9, 0.5);
-    if (fgOnly && g.far) continue;
-    const path = new Path2D();
-    path.moveTo(0, h);
-    for (let i = 0; i < pts.length; i++) {
-      const u = i / (pts.length - 1);
-      const bf = u * (big.length - 1), bi = Math.min(big.length - 2, Math.floor(bf)), bt = bf - bi;
-      const env = (big[bi] + (big[bi + 1] - big[bi]) * (bt * bt * (3 - 2 * bt))) * 0.5 + 0.5;
-      const y = (g.y - g.amp * (0.35 + 0.65 * env) - g.amp * 0.35 * pts[i]) * h;
-      path.lineTo(u * w, y);
-    }
-    path.lineTo(w, h); path.closePath();
-    ctx.fillStyle = lin(ctx, 0, (g.y - g.amp * 1.5) * h, 0, (g.y + 0.03) * h, [[0, g.top], [1, g.bot]]);
-    ctx.fill(path);
-    if (!g.far) {
-      // rocky texture: soft light/dark specks clipped to the range
-      ctx.save(); ctx.clip(path);
-      for (let i = 0; i < 1400; i++) {
-        const x = R() * w, y = (g.y - g.amp * 1.3 + R() * g.amp * 1.4) * h;
-        ctx.fillStyle = R() < 0.55 ? 'rgba(20,20,24,0.16)' : 'rgba(220,214,206,0.12)';
-        ctx.beginPath(); ctx.ellipse(x, y, 3 + R() * 14, 1.5 + R() * 5, (R() - 0.5) * 1.2, 0, 7); ctx.fill();
-      }
-      // atmospheric haze at the foot
-      ctx.fillStyle = lin(ctx, 0, (g.y - 0.02) * h, 0, (g.y + 0.04) * h, [[0, 'rgba(232,226,218,0)'], [1, 'rgba(232,226,218,0.85)']]);
-      ctx.fillRect(0, 0, w, h);
-      ctx.restore();
-    }
-  }
-  // dunes: few, large, smooth; lit windward face, soft shaded lee
-  const dunes = [
-    { base: horizon + 0.06, amp: 0.04, fq: 1.3, light: [234, 222, 205], dark: [205, 186, 165] },
-    { base: horizon + 0.17, amp: 0.07, fq: 0.9, light: [238, 224, 204], dark: [196, 172, 148] },
-    { base: horizon + 0.33, amp: 0.1, fq: 0.7, light: [240, 226, 206], dark: [189, 163, 138] },
-    { base: horizon + 0.55, amp: 0.13, fq: 0.55, light: [242, 229, 210], dark: [182, 155, 129] },
-  ];
-  for (const d of dunes) {
-    const ph = R() * 6;
-    const crest = [];
-    for (let i = 0; i <= 200; i++) {
-      const u = i / 200;
-      const y = d.base - d.amp * (0.55 + 0.45 * Math.sin(u * Math.PI * 2 * d.fq + ph) + 0.12 * Math.sin(u * 23 + ph));
-      crest.push([u * w, y * h]);
-    }
-    const path = new Path2D();
-    path.moveTo(0, h); crest.forEach(([x, y]) => path.lineTo(x, y)); path.lineTo(w, h); path.closePath();
-    const top = (d.base - d.amp) * h, bot = Math.min(1, d.base + 0.18) * h;
-    const c = (a) => `rgb(${a[0]},${a[1]},${a[2]})`;
-    ctx.fillStyle = lin(ctx, 0, top, 0, bot, [[0, c(d.light)], [0.45, c(d.dark)], [1, c(d.dark.map((v) => v - 12))]]);
-    ctx.fill(path);
-    // lee-side shadow hugging the crest, feathered
-    ctx.save(); ctx.clip(path);
-    for (let k = 0; k < 10; k++) {
-      ctx.beginPath();
-      crest.forEach(([x, y], i) => { const yy = y + (k * 0.006 + 0.004) * h * (0.6 + 0.4 * Math.sin(i * 0.05 + ph)); i ? ctx.lineTo(x, yy) : ctx.moveTo(x, yy); });
-      ctx.strokeStyle = `rgba(130,104,84,${0.05 * (1 - k / 10)})`; ctx.lineWidth = h * 0.012; ctx.stroke();
-    }
-    // bright rim on the crest
-    ctx.beginPath(); crest.forEach(([x, y], i) => (i ? ctx.lineTo(x, y + 1) : ctx.moveTo(x, y + 1)));
-    ctx.strokeStyle = 'rgba(255,250,240,0.55)'; ctx.lineWidth = 2; ctx.stroke();
-    // fine wind ripples
-    for (let i = 0; i < 70; i++) {
-      const x = R() * w, y = top + R() * (bot - top);
-      ctx.beginPath(); ctx.moveTo(x, y); ctx.bezierCurveTo(x + 30, y - 3, x + 70, y + 3, x + 110 + R() * 80, y - 1);
-      ctx.strokeStyle = 'rgba(120,96,76,0.07)'; ctx.lineWidth = 1.6; ctx.stroke();
-    }
-    ctx.restore();
-  }
-  // grain
-  const img = ctx.getImageData(0, 0, w, h), dd = img.data;
-  for (let i = 0; i < dd.length; i += 4) { if (!dd[i + 3]) continue; const n = (Math.random() - 0.5) * 6; dd[i] += n; dd[i + 1] += n; dd[i + 2] += n; }
-  ctx.putImageData(img, 0, 0);
-}
-
 // cheap, portable blur (no ctx.filter): downscale then upscale
 function blurred(src, factor = 18) {
   const s = document.createElement('canvas');
@@ -425,25 +324,30 @@ export class Screens {
       t.anisotropy = 8;
       t.minFilter = THREE.LinearMipmapLinearFilter;
     }
-    this._wpInner = this._wallpaper(INNER_W, INNER_H, 0.52, 7);
-    this._wpOuter = this._wallpaper(OUTER_W, OUTER_H, 0.46, 11);
-    const fg = document.createElement('canvas'); fg.width = OUTER_W; fg.height = OUTER_H;
-    paintDesert(fg.getContext('2d'), OUTER_W, OUTER_H, { horizon: 0.46, seed: 11, fgOnly: true });
-    this._fgOuter = fg;
-    this._blurInner = blurred(this._wpInner);
-    this._blurOuter = blurred(this._wpOuter);
-    this.draw();
+    // Apple's iPhone Duo wallpapers (light), plus a cut-out of the mountains for the
+    // Lock Screen depth effect (tools: see README).
+    const img = (src) => new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = src; });
+    this.ready = Promise.all([img('assets/wall-inner.jpg'), img('assets/wall-outer.jpg'), img('assets/wall-outer-fg.png')]).then(([wi, wo, fg]) => {
+      this._wpInner = this._cover(wi, INNER_W, INNER_H);
+      this._wpOuter = this._cover(wo, OUTER_W, OUTER_H);
+      this._fgOuter = this._cover(fg, OUTER_W, OUTER_H);
+      this._blurInner = blurred(this._wpInner);
+      this._blurOuter = blurred(this._wpOuter);
+      this.draw();
+    });
   }
 
-  _wallpaper(w, h, horizon, seed) {
+  _cover(im, w, h) {
     const c = document.createElement('canvas'); c.width = w; c.height = h;
-    paintDesert(c.getContext('2d'), w, h, { horizon, seed });
+    const k = Math.max(w / im.width, h / im.height);
+    const dw = im.width * k, dh = im.height * k;
+    c.getContext('2d').drawImage(im, (w - dw) / 2, (h - dh) / 2, dw, dh);
     return c;
   }
 
   setCaught() { /* the Home Screen stays stock; score lives in the page HUD */ }
 
-  draw() { this.drawInner(); this.drawOuter(); }
+  draw() { if (!this._wpInner) return; this.drawInner(); this.drawOuter(); }
 
   drawInner() {
     const ctx = this.inner.getContext('2d');
@@ -500,38 +404,54 @@ export class Screens {
   }
 
   drawOuter() {
+    // Lock Screen as on the Duo's outer display: date, a tall condensed clock that the
+    // mountains overlap, Wi-Fi status bubble under the camera, stacked quick actions.
     const ctx = this.outer.getContext('2d');
     const Wd = OUTER_W, H = OUTER_H, now = new Date();
-    // Lock Screen: big clock tucked behind the mountains (depth effect)
     ctx.drawImage(this._wpOuter, 0, 0);
+    const cx = Wd * 0.47;
     ctx.save();
-    ctx.fillStyle = '#fff'; ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
-    ctx.font = `600 46px ${FONT}`;
-    ctx.shadowColor = 'rgba(0,0,0,0.18)'; ctx.shadowBlur = 10;
-    ctx.fillText(now.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' }), Wd / 2, 200);
-    ctx.font = `700 ${Math.round(H * 0.27)}px ${FONT_R}`;
-    ctx.fillStyle = 'rgba(255,255,255,0.9)';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
+    ctx.shadowColor = 'rgba(0,0,0,0.12)'; ctx.shadowBlur = 12;
+    ctx.fillStyle = 'rgba(255,255,255,0.96)';
+    ctx.font = `600 50px ${FONT}`;
+    ctx.fillText(now.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' }), cx, H * 0.085);
+    // clock: condensed by scaling x; glassy white with a soft vertical falloff
     const t = timeStr(now);
-    ctx.fillText(t, Wd / 2, 200 + H * 0.24);
+    const size = Math.round(H * 0.34), sx = 0.6;
+    ctx.font = `500 ${size}px ${FONT}`;
+    const top = H * 0.105, base = H * 0.362;
+    ctx.fillStyle = lin(ctx, 0, top, 0, base, [[0, 'rgba(255,255,255,0.97)'], [0.7, 'rgba(255,255,255,0.9)'], [1, 'rgba(250,246,240,0.82)']]);
+    ctx.translate(cx, base); ctx.scale(sx, 1);
+    ctx.fillText(t, 0, 0);
     ctx.restore();
-    // the near mountains + dunes overlap the lower part of the digits
+    // mountains in front of the digits
     ctx.drawImage(this._fgOuter, 0, 0);
-    // status bar
-    ctx.fillStyle = '#fff'; ctx.font = `600 34px ${FONT}`; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
-    ctx.fillText(timeStr(now), 70, 62);
-    // the hole-punch camera sits top right; status icons left of it
-    wifi(ctx, Wd - 250, 78, 26);
-    battery(ctx, Wd - 225, 52, 19);
-    // flashlight + camera quick actions
-    for (const [x, k] of [[150, 'flashlight'], [Wd - 150, 'cam']]) {
-      glassPanel(ctx, this._blurOuter, x - 62, H - 210, 124, 124, 62, { tint: 'rgba(40,40,46,0.28)' });
-      ctx.save(); ctx.translate(x - 40, H - 188);
-      if (k === 'flashlight') ICON.flashlight(ctx, 80);
-      else { rr(ctx, 14, 26, 52, 36, 8); ctx.fillStyle = '#fff'; ctx.fill(); disc(ctx, 40, 44, 11, '#555'); disc(ctx, 40, 44, 7, '#fff'); }
+    // Wi-Fi status bubble under the front camera
+    const bx = Wd * 0.865, by = H * 0.14, br = Wd * 0.052;
+    glassPanel(ctx, this._blurOuter, bx - br, by - br, br * 2, br * 2, br, { tint: 'rgba(255,255,255,0.12)' });
+    wifi(ctx, bx, by + br * 0.32, br * 0.62);
+    ctx.save(); ctx.fillStyle = 'rgba(255,255,255,0.9)';
+    for (let i = 0; i < 5; i++) { ctx.beginPath(); ctx.arc(bx + Math.cos(Math.PI * (0.15 + i * 0.175)) * br * 0.72, by + Math.sin(Math.PI * (0.15 + i * 0.175)) * br * 0.72, br * 0.05, 0, 7); ctx.fill(); }
+    ctx.restore();
+    // flashlight + camera, stacked bottom right
+    const qx = Wd * 0.88, qr = Wd * 0.058;
+    for (const [qy, k] of [[H * 0.79, 'torch'], [H * 0.885, 'cam']]) {
+      glassPanel(ctx, this._blurOuter, qx - qr, qy - qr, qr * 2, qr * 2, qr, { tint: 'rgba(255,255,255,0.14)' });
+      ctx.save(); ctx.translate(qx, qy); ctx.fillStyle = '#fff'; ctx.strokeStyle = '#fff';
+      if (k === 'torch') {
+        rr(ctx, -qr * 0.13, -qr * 0.05, qr * 0.26, qr * 0.5, qr * 0.05); ctx.fill();
+        ctx.beginPath(); ctx.moveTo(-qr * 0.22, -qr * 0.42); ctx.lineTo(qr * 0.22, -qr * 0.42); ctx.lineTo(qr * 0.13, -qr * 0.08); ctx.lineTo(-qr * 0.13, -qr * 0.08); ctx.closePath(); ctx.fill();
+        disc(ctx, 0, qr * 0.08, qr * 0.04, '#9a9a9a');
+      } else {
+        rr(ctx, -qr * 0.4, -qr * 0.22, qr * 0.8, qr * 0.56, qr * 0.1); ctx.fill();
+        rr(ctx, -qr * 0.14, -qr * 0.33, qr * 0.28, qr * 0.14, qr * 0.04); ctx.fill();
+        disc(ctx, 0, qr * 0.06, qr * 0.17, '#8d8d8d'); disc(ctx, 0, qr * 0.06, qr * 0.11, '#fff');
+      }
       ctx.restore();
     }
     // home indicator
-    rr(ctx, Wd / 2 - 130, H - 40, 260, 11, 6); ctx.fillStyle = 'rgba(255,255,255,0.9)'; ctx.fill();
+    rr(ctx, Wd / 2 - Wd * 0.19, H - 34, Wd * 0.38, 11, 6); ctx.fillStyle = 'rgba(255,255,255,0.95)'; ctx.fill();
     this.outerTex.needsUpdate = true;
   }
 }

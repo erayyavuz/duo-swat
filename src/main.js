@@ -57,32 +57,24 @@ const screens = new Screens();
 const phone = new Phone(screens);
 const rig = new THREE.Group();               // hand + phone, metres
 scene.add(rig);
-// Everything below is modelled as "left hand holds the left half"; mirroring it gives the
-// real device's layout: the right (camera) half is held, the outer-display half swings
+// The phone is modelled with its held half on the left; mirroring it gives the real
+// device's layout: the right (camera) half is held, the outer-display half swings
 // open and shut like a book cover.
 const mirror = new THREE.Group();
 mirror.scale.x = -1;
 rig.add(mirror);
 mirror.add(phone.group);
 const hand = new Hand();
-mirror.add(hand.group);
+rig.add(hand.group);
 
-// grip, tuned against the phone's left (fixed) half
-const GRIP = {
-  p: [-0.07, -0.07, -0.0098], q: [0.7071, 0, 0.7071, 0], t: [0, 0, -0.35],
-  pose: {
-    thumb: { curl: [-0.3, -0.5, -0.4] },
-    index: { curl: [-0.16, -0.12, -0.05] },
-    middle: { curl: [-0.12, -0.1, -0.05], spread: 0.03 },
-    ring: { curl: [-0.16, -0.12, -0.05], spread: 0.06 },
-    pinky: { curl: [-0.22, -0.14, -0.05], spread: 0.1 },
-  },
-};
-const handReady = hand.load('assets/hand.glb').then(() => {
-  hand.setPose(GRIP.pose);
-  hand.group.position.fromArray(GRIP.p);
-  hand.group.quaternion.fromArray(GRIP.q).premultiply(new THREE.Quaternion().setFromEuler(new THREE.Euler(...GRIP.t)));
-  hand.group.scale.set(-1, 1, 1);           // mirrored right hand -> left hand
+// Right hand holds the right half from behind, thumb over the right edge onto the bezel.
+// Fitted in rig space (metres) by tools/fitgrip.js against the held half
+// (x 0..0.082, y +-0.059, z -0.0052..0).
+const GRIP = Q.get('grip') ? JSON.parse(Q.get('grip')) :
+  [0.095, -0.117, -0.031, -0.338, -0.065, 0.405, -0.498, 1.303, -0.556, 0.406, -0.454, -0.294, -0.331, 0.331, 0.052, -0.334, 0.218, 0.958, -1.249, -0.26, 0.328, 0.471, 0.288, -0.3, -0.2];
+const handReady = hand.load('assets/arm.glb', 'assets/skin.jpg').then(() => {
+  rig.updateMatrixWorld(true);
+  hand.applyGrip(GRIP);
   if (Q.has('handonly')) phone.group.visible = false;
 });
 
@@ -291,13 +283,14 @@ setInterval(() => screens.draw(), 15000);
 
 // ------------------------------------------------------------------ start
 let started = false;
-let pendingAssets = 2;
+let pendingAssets = 3;
 function assetsReady() {
   if (--pendingAssets > 0) return;
   document.getElementById('veil').classList.add('gone');
   started = true;
 }
 handReady.then(assetsReady);
+screens.ready.then(assetsReady);
 addEventListener('resize', layout);
 layout();
 fly.spawn(true);
@@ -323,7 +316,7 @@ function tick() {
     phone.setAngle(0);
     if (game.modeT > 1.5) { setMode('opening'); sound.unfold(); }
   } else if (M === 'opening') {
-    const k = easeInOut(clamp(game.modeT / 1.0, 0, 1));
+    const k = easeInOut(clamp(game.modeT / 1.15, 0, 1));
     phone.setAngle(lerp(0, OPEN_CATCH, k));
     if (k >= 1) { setMode('open'); ui.hint.classList.remove('gone'); }
   } else if (M === 'snapping') {
@@ -374,8 +367,8 @@ function tick() {
     phone.setAngle((game.pendingCatch ? 0.035 : 0) + b);
     if (game.modeT > game.holdFor) { setMode('reopening'); sound.unfold(); }
   } else if (M === 'reopening') {
-    const k = clamp(game.modeT / 0.55, 0, 1);
-    const a = lerp(game.pendingCatch ? 0.035 : 0, OPEN_CATCH, easeOutBack(k));
+    const k = clamp(game.modeT / 0.7, 0, 1);
+    const a = lerp(game.pendingCatch ? 0.035 : 0, OPEN_CATCH, easeInOut(k) * 0.35 + easeOutBack(k) * 0.65);
     phone.setAngle(a);
     if (game.pendingCatch && fly.state === 'caught' && a > 0.45) {
       // the corpse peels off the screen and drops to the bottom of the view, where it stays
@@ -401,24 +394,35 @@ function tick() {
   // unfolding: held half lights first (frosted), the other joins past ~70 deg, and the
   // whole panel resolves from heavy blur to sharp once it's open.
   {
+    // Everything is a smooth function of the fold angle, plus one eased "settle" once open,
+    // so the panel never pops: the swinging half fades as it leaves ~110 deg, the held half
+    // frosts and dims through the middle of the travel, and once open the frost clears
+    // over ~0.6 s with an ease-out.
     const a = phone.angle, S = game.scr;
-    const toward = (v, t, up, down) => v + (t - v) * (1 - Math.exp(-dt * (t > v ? up : down)));
-    const folded = a < 0.22;
-    const snapping = M === 'snapping' || M === 'shut';
-    S.flap = toward(S.flap, folded || snapping ? 0 : (a > 1.2 ? 1 : 0), 9, 60);
-    S.fixed = toward(S.fixed, folded ? 0 : (snapping ? 0.45 : 1), 10, snapping ? 14 : 40);
-    const settled = M === 'open' && game.modeT > 0.04;
-    S.blur = toward(S.blur, snapping ? 1.3 : (settled ? 0 : 1.5), settled ? 5 : 30, 30);
-    // the outer display wakes only once the halves have met
-    const shutLongEnough = (M === 'shut' && game.modeT > 0.08) || M === 'intro';
-    S.outer = toward(S.outer, folded && shutLongEnough ? 1 : 0, 9, 40);
+    const sm = THREE.MathUtils.smoothstep;
+    const closing = M === 'snapping' || M === 'shut';
+    const flapTarget = sm(a, 0.95, 1.85);
+    const fixedTarget = sm(a, 0.12, 0.8) * (closing ? 0.6 + 0.4 * sm(a, 1.2, 2.0) : 1);
+    const travel = 1 - sm(a, 1.75, 2.0);                 // frost while the halves are moving
+    const ease = (v, t, rate) => v + (t - v) * (1 - Math.exp(-dt * rate));
+    S.flap = ease(S.flap, flapTarget, 22);
+    S.fixed = ease(S.fixed, fixedTarget, 18);
+    if (M === 'open') {
+      S.settle = Math.min(1, (S.settle ?? 0) + dt / 0.6);
+    } else S.settle = 0;
+    const settleCurve = 1 - Math.pow(1 - S.settle, 3);
+    const blurTarget = Math.max(travel * 1.35, closing ? 1.2 * (1 - sm(a, 1.9, 2.06)) : 0, M === 'open' ? 1.35 * (1 - settleCurve) * (S.blurAtOpen ?? 1) : 0);
+    S.blur = ease(S.blur, blurTarget, M === 'open' ? 40 : 14);
+    if (M !== 'open') S.blurAtOpen = Math.min(1, S.blur / 1.35);
+    const shutLongEnough = (M === 'shut' && game.modeT > 0.08) || M === 'intro' || Q.has('a');
+    S.outer = ease(S.outer, a < 0.22 && shutLongEnough ? 1 : 0, S.outer < 0.5 && a < 0.22 ? 7 : 30);
     innerU.uBright.value = 1.12;
     innerU.uDim.value.set(S.flap, S.fixed);
     innerU.uBlur.value = S.blur;
-    innerU.uZoom.value = 1 + S.blur * 0.035;
+    innerU.uZoom.value = 1 + S.blur * 0.03;
     outerU.uBright.value = S.outer;
-    outerU.uBlur.value = (1 - S.outer) * 1.6;
-    outerU.uZoom.value = 1 + (1 - S.outer) * 0.06;
+    outerU.uBlur.value = (1 - S.outer) * 1.4;
+    outerU.uZoom.value = 1 + (1 - S.outer) * 0.05;
   }
 
   // ---- aim + rig
@@ -514,4 +518,4 @@ function tick() {
 }
 renderer.setAnimationLoop(tick);
 
-window.__app = { THREE, scene, camera, phone, renderer, screens, hand, rig, fly, game, aim, snap, sound, corpses };
+window.__app = { ROT_BASE, THREE, scene, camera, phone, renderer, screens, hand, rig, fly, game, aim, snap, sound, corpses };
