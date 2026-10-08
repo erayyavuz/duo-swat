@@ -139,6 +139,11 @@ def make_nails():
     nm.materials.append(mt)
     for poly in nm.polygons: poly.use_smooth = True
     return o
+# skinning repair: Corrective Smooth relaxes the bulges linear-blend skinning makes at
+# heavily bent joints (thumb base) while keeping the rest-pose shape elsewhere
+cs = body.modifiers.new('cs', 'CORRECTIVE_SMOOTH')
+cs.rest_source = 'ORCO'; cs.iterations = int(prm.get('cs_iter', 14)); cs.factor = float(prm.get('cs_factor', 0.65))
+cs.smooth_type = 'LENGTH_WEIGHTED'; cs.use_pin_boundary = True
 nails = make_nails()
 
 # ---- proxy phone (held half + open flap) in Blender coords
@@ -188,7 +193,7 @@ if exp:
     bpy.ops.object.select_all(action='DESELECT')
     bpy.context.view_layer.objects.active = body; body.select_set(True)
     for m in list(body.modifiers):
-        if m.type == 'ARMATURE': bpy.ops.object.modifier_apply(modifier=m.name)
+        if m.type in ('ARMATURE', 'CORRECTIVE_SMOOTH'): bpy.ops.object.modifier_apply(modifier=m.name)
     sub = body.modifiers.new('sub', 'SUBSURF'); sub.levels = 2
     bpy.ops.object.modifier_apply(modifier='sub')
     bpy.ops.object.shade_smooth()

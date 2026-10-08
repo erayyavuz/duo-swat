@@ -55,51 +55,31 @@ def pts(n):  # rig-space points along finger n
 BACK = -0.0052
 BOTTOM = -0.0589
 def cost():
-    # Left hand from below (Era's reference): palm + fingers up the back of the held half,
-    # heel under the bottom edge, thumb lying along the FRONT of the bottom edge pointing
-    # right, entirely below the display so the closing half never touches it.
+    # Hand entirely behind the held (right) half: palm and all five digits resting on the
+    # back, nothing past the top/side outline, only wrist + palm heel below the bottom edge.
     e = 0
-    t = pts(1)
-    e += 3 * (t[3] - Vector((0.056, -0.0638, 0.0))).length
-    e += 1.5 * (t[1] - Vector((0.014, -0.0685, -0.001))).length       # thumb lies horizontally
-    for v in t[1:]:
-        if -0.004 < v.x < 0.086 and v.y > BOTTOM - 0.0045 and v.z > -0.007: e += 0.6 + 30 * (v.y - (BOTTOM - 0.0045))
-    for n in range(2, 6):
+    for n in range(1, 6):
         p = pts(n)
-        for i, v in enumerate(p):
-            inside = -0.003 < v.x < 0.083 and abs(v.y) < 0.059
-            if inside and v.z > BACK - 0.007: e += 0.4 + 20 * (v.z - (BACK - 0.007))
-            if v.z > -0.004 and -0.01 < v.x < 0.09 and abs(v.y) < 0.07: e += 1.0       # never in front
-            if i >= 1: e += 8 * abs(v.z - (BACK - 0.0085)) + (0 if inside else 0.5 + 10 * max(0, v.x - 0.08, -0.003 - v.x))
-        if p[3].y > 0.03: e += 2 * (p[3].y - 0.03)
-        for v in p[1:]:
-            if v.x > 0.064: e += 0.3 + 20 * (v.x - 0.064)      # keep fingertips (and nails) well inside the edge
-        if p[3].y < -0.03: e += 2 * (-0.03 - p[3].y)
-    # real surface: nothing in front of / inside the display area, nothing where the open flap is
-    bad = 0.0
+        for i, v in enumerate(p[1:]):
+            if v.x > 0.076: e += 0.3 + 30 * (v.x - 0.076)
+            if v.x < 0.006: e += 0.3 + 30 * (0.006 - v.x)
+            if v.y > 0.05: e += 0.3 + 30 * (v.y - 0.05)
+        e += 20 * abs(p[3].z - (BACK - 0.0075))         # pads on the back
+        e += 10 * abs(p[2].z - (BACK - 0.008)) + 6 * abs(p[1].z - (BACK - 0.0085))
+    bad = 0.0; vis = 0
     for v in surface():
-        if -0.004 < v.x < 0.086 and abs(v.y) < 0.0598 and v.z > BACK - 0.0004: bad += 1 + 400 * (v.z - (BACK - 0.0004))
-        elif v.x <= -0.004 and v.z > -0.004 and abs(v.y) < 0.062: bad += 1
-    e += bad * 0.02
+        inside = -0.002 < v.x < 0.0845 and abs(v.y) < 0.0602
+        if inside and v.z > BACK - 0.0003: bad += 1 + 400 * (v.z - (BACK - 0.0003))
+        if v.z > -0.001 and v.y > -0.064: bad += 1                      # nothing in front of the phone
+        if v.x > 0.0845 and v.y > -0.05: vis += 1                       # peeking past the right edge
+    e += bad * 0.02 + vis * 0.004
     w = b2r(pb['wrist.L'].head)
-    e += 1.0 * abs(w.x - 0.0)
-    # the bottom edge sits deep in the thumb-index web; thumb base barely bent
-    web = (b2r(pb['finger1-1.L'].head) * 0.35 + b2r(pb['finger2-1.L'].head) * 0.65)
-    if os.environ.get('WEB'):
-        e += 4 * (web - Vector((0.012, -0.066, -0.004))).length
-        c0 = CUR['fingers']['1'][0]
-        e += 0.15 * sum(abs(x) for x in (c0 if isinstance(c0, list) else [c0]))
-    # palm faces up under the bottom edge: fingers point backward, thumb side to the right
-    Fv = Vector(CUR['f']).normalized(); Av = Vector(CUR['a']).normalized()
-    if not os.environ.get('WEB'):
-        if Fv.z > -0.6: e += 3 * (Fv.z + 0.6)
-        if Av.x < 0.85: e += 3 * (0.85 - Av.x)
-    e += 0.01 * sum(abs(a) for n, vals in CUR['fingers'].items() for a in (vals[0] if isinstance(vals[0], list) else [vals[0]]) + list(vals[1:]))
-    if w.y > -0.085: e += 3 * (w.y + 0.085)
-    if w.y < -0.11: e += 3 * (-0.11 - w.y)
-    el = b2r(pb['lowerarm01.L'].head)
-    if el.x > w.x: e += 1.0 * (el.x - w.x)        # forearm heads down-left like the photo
-    if el.z < w.z: e += 2 * (w.z - el.z)
+    if w.y > -0.075: e += 4 * (w.y + 0.075)
+    if w.y < -0.105: e += 4 * (-0.105 - w.y)
+    e += 1.5 * abs(w.x - 0.048)
+    # fingers close together, not splayed
+    xs = [pts(n)[3].x for n in range(2, 6)]
+    e += 0.8 * max(0, (max(xs) - min(xs)) - 0.05)
     return e
 P0 = {"side": "L", "o": [0.0, -0.115, -0.019], "f": [0.35, 1, 0], "a": [-1, 0.35, 0.15],
       "fingers": {"1": [[0, 0, 0], 0.3, 0.2], "2": [-0.35, -0.25, -0.1], "3": [-0.35, -0.25, -0.1], "4": [-0.35, -0.25, -0.1], "5": [-0.3, -0.25, -0.1]}}
