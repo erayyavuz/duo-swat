@@ -1,8 +1,8 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
-// Right forearm + hand cut from a MakeHuman base mesh (CC0, generated with MPFB2 in
-// Blender), with the CC0 "young caucasian male" skin texture.
+// Left forearm + hand cut from a female MakeHuman base mesh (CC0, generated with MPFB2 in
+// Blender), CC0 "young caucasian female" skin, long almond nails with red polish.
 
 const NOISE = `
 float hsh(vec3 p){ p = fract(p * 0.3183099 + 0.1); p *= 17.0; return fract(p.x * p.y * p.z * (p.x + p.y + p.z)); }
@@ -52,7 +52,16 @@ export class Hand {
     ]);
     map.flipY = false; map.colorSpace = THREE.SRGBColorSpace; map.anisotropy = 8;
     this.material = skinMaterial(map);
-    gltf.scene.traverse((o) => { if (o.isMesh) { o.material = this.material; this.mesh = o; } });
+    // glossy red polish on the nails (a separate mesh in the GLB)
+    this.nailMaterial = new THREE.MeshPhysicalMaterial({
+      color: 0x8a0710, roughness: 0.22, metalness: 0, clearcoat: 1, clearcoatRoughness: 0.04,
+      sheen: 0.2, sheenColor: new THREE.Color(0xff5060),
+    });
+    gltf.scene.traverse((o) => {
+      if (!o.isMesh) return;
+      if (/nail/i.test(o.name) || /nail/i.test(o.parent?.name ?? '')) o.material = this.nailMaterial;
+      else { o.material = this.material; this.mesh = o; }
+    });
     this.group.add(gltf.scene);
     this.ready = true;
     return this;

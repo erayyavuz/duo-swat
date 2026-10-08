@@ -67,9 +67,10 @@ mirror.add(phone.group);
 const hand = new Hand();
 rig.add(hand.group);
 
-// Right hand holding the phone from below, near the middle: palm and fingers on the back
-// of the held half, thumb across the front of the bottom edge but below the display, so
-// the closing half never sweeps through it. Posed in Blender against a proxy (rig space).
+// Left hand holding the phone from below, as in Era's reference photo: palm and fingers on
+// the back of the held half, thumb lying along the front of the bottom edge pointing right,
+// below the display so the closing half never sweeps through it. Posed in Blender
+// (tools/blender/pose_hand2.py + search_left.py) against a proxy of the phone, rig space.
 const handReady = hand.load('assets/hand-posed.glb', 'assets/skin.jpg').then(() => {
   if (Q.has('handonly')) phone.group.visible = false;
 });
