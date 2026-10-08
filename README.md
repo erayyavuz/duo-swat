@@ -17,7 +17,7 @@ No build step: plain ES modules plus an import map for `three@0.170.0`.
 | --- | --- |
 | `src/phone.js` | Foldable phone geometry: 117.8 × 164.6 × 5.2 mm open, polished titanium frame, micro-blasted hinge cover, pill camera plateau, outer display with hole-punch camera, a continuous inner display that bends through the crease, and the wedge hit test |
 | `src/screens.js` | Inner Home Screen (landscape Duo layout, side Dock) and outer Lock Screen (condensed clock behind the mountains) on the official Duo wallpapers. Icons are drawn in code in the iOS style |
-| `src/hand.js` | MakeHuman right forearm + hand with a photo skin texture, posed and baked in Blender (`tools/blender/pose_hand.py`, grip found by `tools/blender/search.py`, params in `grip.json`) |
+| `src/hand.js` | MakeHuman right forearm + hand with a photo skin texture, posed and baked in Blender (`tools/blender/pose_hand.py`, bottom grip found by `tools/blender/search_bottom.py`, params in `grip.json`) |
 | `src/fly.js` | Housefly model (compound eyes, striped thorax, motion-blurred wings, jointed legs) and its flight, landing and escape behaviour |
 | `src/audio.js` | WebAudio-synthesised buzz, snap, squish and hinge sounds |
 | `src/trail.js` | Frame-accumulation motion blur, used during the snap |
